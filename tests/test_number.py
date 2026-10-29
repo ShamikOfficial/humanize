@@ -396,3 +396,74 @@ def test_whole_numbers_outside_float_range():
     assert "Inf" not in humanize.intword(huge)
     assert humanize.clamp(huge) == str(huge)
     assert "10" in humanize.metric(huge)
+
+
+@pytest.mark.parametrize("magnitude", [2**53 + 1, 10**400 + 123])
+@pytest.mark.parametrize("sign", [1, -1])
+@pytest.mark.parametrize("as_string", [False, True])
+@pytest.mark.parametrize("ndigits", [0, 2])
+def test_intcomma_integer_precision_is_exact(
+    magnitude: int, sign: int, as_string: bool, ndigits: int
+) -> None:
+    from decimal import localcontext
+
+    value = sign * magnitude
+    expected = f"{value:,}" + (".00" if ndigits else "")
+    with localcontext() as context:
+        context.prec = 2
+        assert (
+            humanize.intcomma(str(value) if as_string else value, ndigits) == expected
+        )
+
+
+def test_intcomma_large_integer_invalid_precision() -> None:
+    with pytest.raises(ValueError, match="[Pp]recision|[Ff]ormat"):
+        humanize.intcomma(10**400 + 123, -1)
+
+
+@pytest.mark.parametrize("ndigits", [None, 0, 2])
+@pytest.mark.parametrize("inherited_override", [False, True])
+def test_intcomma_preserves_custom_integer_format(
+    ndigits: int | None, inherited_override: bool
+) -> None:
+    class CustomInt(int):
+        def __format__(self, spec: str) -> str:
+            return f"custom ({spec})"
+
+    class ChildInt(CustomInt):
+        pass
+
+    value = ChildInt(1234) if inherited_override else CustomInt(1234)
+    spec = "," if ndigits is None else f",.{ndigits}f"
+    assert humanize.intcomma(value, ndigits) == f"custom ({spec})"
+
+
+@pytest.mark.parametrize("kind", ["plain", "enum", "bool"])
+def test_intcomma_inherited_integer_format_is_exact(kind: str) -> None:
+    from enum import IntEnum
+
+    class PlainInt(int):
+        pass
+
+    class Amount(IntEnum):
+        VALUE = 2**53 + 1
+
+    value: int
+    if kind == "plain":
+        value = PlainInt(10**400 + 123)
+    elif kind == "enum":
+        value = Amount.VALUE
+    else:
+        value = True
+    assert humanize.intcomma(value, 2) == f"{int(value):,}.00"
+
+
+@pytest.mark.parametrize("ndigits", [None, 0, 2])
+def test_intcomma_preserves_custom_integer_float(ndigits: int | None) -> None:
+    class CustomFloatInt(int):
+        def __float__(self) -> float:
+            return 42.0
+
+    value = CustomFloatInt(1234)
+    spec = "," if ndigits is None else f",.{ndigits}f"
+    assert humanize.intcomma(value, ndigits) == format(value, spec)
